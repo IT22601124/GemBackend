@@ -1,5 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const upload = require('../middleware/imageuploadtype');
+
 const {
   getJewelryTypes,
   getJewelryType,
@@ -14,7 +17,7 @@ const {
 router.get('/', getJewelryTypes);
 router.get('/search', searchJewelryTypes);
 router.get('/:id', getJewelryType);
-router.post('/', createJewelryType);
+router.post('/', upload.single('image'), createJewelryType);
 router.put('/:id', updateJewelryType);
 router.delete('/:id', deleteJewelryType);
 router.patch('/:id/toggle', toggleJewelryTypeStatus);

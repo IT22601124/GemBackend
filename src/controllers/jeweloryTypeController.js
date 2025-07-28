@@ -1,280 +1,183 @@
-const JewelryType = require('../models/jewelryType');
+const { getFirestore } = require('../config/firebase');
+const admin = require('firebase-admin');
 
-// @desc    Get all jewelry types
-// @route   GET /api/jewelry-types
-// @access  Public
+// GET all jewelry types
 const getJewelryTypes = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-    
-    // Build filter object
-    const filter = {};
+    const db = getFirestore();
+    let query = db.collection('jewelryTypes');
+
+    // Filtering
     if (req.query.isActive !== undefined) {
-      filter.isActive = req.query.isActive === 'true';
+      query = query.where('isActive', '==', req.query.isActive === 'true');
     }
     if (req.query.type) {
-      filter.type = new RegExp(req.query.type, 'i');
+      // Firestore doesn't support regex, so use simple case-insensitive match
+      // This will fetch all and filter in JS (not efficient for large collections)
+      const snapshot = await query.get();
+      const filtered = [];
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.type && data.type.toLowerCase().includes(req.query.type.toLowerCase())) {
+          filtered.push({ id: doc.id, ...data });
+        }
+      });
+      return res.status(200).json({ success: true, data: filtered });
     }
-    
-    // Sort options
-    const sortOptions = {};
+
+    // Sorting (by type or createdAt)
     if (req.query.sortBy) {
       const parts = req.query.sortBy.split(':');
-      sortOptions[parts[0]] = parts[1] === 'desc' ? -1 : 1;
+      query = query.orderBy(parts[0], parts[1] === 'desc' ? 'desc' : 'asc');
     } else {
-      sortOptions.type = 1; // Default sort by type alphabetically
+      query = query.orderBy('type', 'asc');
     }
-    
-    const jewelryTypes = await JewelryType.find(filter)
-      .sort(sortOptions)
-      .skip(skip)
-      .limit(limit);
-    
-    const total = await JewelryType.countDocuments(filter);
-    
-    res.status(200).json({
-      success: true,
-      data: jewelryTypes,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
-      }
+
+    const snapshot = await query.get();
+    const jewelryTypes = [];
+    snapshot.forEach(doc => {
+      jewelryTypes.push({ id: doc.id, ...doc.data() });
     });
+
+    res.status(200).json({ success: true, data: jewelryTypes });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get single jewelry type
-// @route   GET /api/jewelry-types/:id
-// @access  Public
+// GET single jewelry type
 const getJewelryType = async (req, res) => {
   try {
-    const jewelryType = await JewelryType.findById(req.params.id);
-    
-    if (!jewelryType) {
-      return res.status(404).json({
-        success: false,
-        message: 'Jewelry type not found'
-      });
+    const db = getFirestore();
+    const doc = await db.collection('jewelryTypes').doc(req.params.id).get();
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, message: 'Jewelry type not found' });
     }
-    
-    res.status(200).json({
-      success: true,
-      data: jewelryType
-    });
+    res.status(200).json({ success: true, data: { id: doc.id, ...doc.data() } });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Create new jewelry type
-// @route   POST /api/jewelry-types
-// @access  Public
+// CREATE new jewelry type
 const createJewelryType = async (req, res) => {
   try {
-    const { type, description, image } = req.body;
-    
-    // Check if jewelry type already exists
-    const existingType = await JewelryType.findOne({ 
-      type: { $regex: new RegExp(`^${type}$`, 'i') } 
-    });
-    
-    if (existingType) {
+    const { type, description } = req.body;
+    let image = req.body.image;
+
+    // If an image file was uploaded, set the image path
+    if (req.file) {
+      image = `/uploads/type/${req.file.filename}`;
+    }
+
+    if (!type || !description || !image) {
       return res.status(400).json({
         success: false,
-        message: 'Jewelry type already exists'
+        message: 'type, description, and image are required fields.'
       });
     }
-    
-    const jewelryType = await JewelryType.create({
+
+    const db = getFirestore();
+    const data = {
       type,
       description,
-      image
-    });
-    
-    res.status(201).json({
-      success: true,
-      data: jewelryType,
-      message: 'Jewelry type created successfully'
-    });
+      image,
+      isActive: req.body.isActive !== undefined ? req.body.isActive === 'true' : true,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    const docRef = await db.collection('jewelryTypes').add(data);
+    const doc = await docRef.get();
+    res.status(201).json({ success: true, data: { id: doc.id, ...doc.data() } });
   } catch (error) {
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        message: 'Validation Error',
-        errors: messages
-      });
-    }
-    
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Update jewelry type
-// @route   PUT /api/jewelry-types/:id
-// @access  Public
+// UPDATE jewelry type
 const updateJewelryType = async (req, res) => {
   try {
-    const { type, description, image } = req.body;
-    
-    // Check if updating to a type that already exists (excluding current one)
-    if (type) {
-      const existingType = await JewelryType.findOne({ 
-        type: { $regex: new RegExp(`^${type}$`, 'i') },
-        _id: { $ne: req.params.id }
-      });
-      
-      if (existingType) {
-        return res.status(400).json({
-          success: false,
-          message: 'Jewelry type already exists'
-        });
-      }
+    const db = getFirestore();
+    const docRef = db.collection('jewelryTypes').doc(req.params.id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, message: 'Jewelry type not found' });
     }
-    
-    const jewelryType = await JewelryType.findByIdAndUpdate(
-      req.params.id,
-      { type, description, image },
-      {
-        new: true,
-        runValidators: true
-      }
-    );
-    
-    if (!jewelryType) {
-      return res.status(404).json({
-        success: false,
-        message: 'Jewelry type not found'
-      });
-    }
-    
-    res.status(200).json({
-      success: true,
-      data: jewelryType,
-      message: 'Jewelry type updated successfully'
-    });
+    const updateData = {
+      ...req.body,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    await docRef.update(updateData);
+    const updatedDoc = await docRef.get();
+    res.status(200).json({ success: true, data: { id: updatedDoc.id, ...updatedDoc.data() }, message: 'Jewelry type updated successfully' });
   } catch (error) {
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        message: 'Validation Error',
-        errors: messages
-      });
-    }
-    
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Delete jewelry type
-// @route   DELETE /api/jewelry-types/:id
-// @access  Public
+// DELETE jewelry type
 const deleteJewelryType = async (req, res) => {
   try {
-    const jewelryType = await JewelryType.findByIdAndDelete(req.params.id);
-    
-    if (!jewelryType) {
-      return res.status(404).json({
-        success: false,
-        message: 'Jewelry type not found'
-      });
+    const db = getFirestore();
+    const docRef = db.collection('jewelryTypes').doc(req.params.id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, message: 'Jewelry type not found' });
     }
-    
-    res.status(200).json({
-      success: true,
-      message: 'Jewelry type deleted successfully'
-    });
+    await docRef.delete();
+    res.status(200).json({ success: true, message: 'Jewelry type deleted successfully' });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Toggle jewelry type status (active/inactive)
-// @route   PATCH /api/jewelry-types/:id/toggle
-// @access  Public
+// TOGGLE jewelry type status
 const toggleJewelryTypeStatus = async (req, res) => {
   try {
-    const jewelryType = await JewelryType.findById(req.params.id);
-    
-    if (!jewelryType) {
-      return res.status(404).json({
-        success: false,
-        message: 'Jewelry type not found'
-      });
+    const db = getFirestore();
+    const docRef = db.collection('jewelryTypes').doc(req.params.id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, message: 'Jewelry type not found' });
     }
-    
-    jewelryType.isActive = !jewelryType.isActive;
-    await jewelryType.save();
-    
+    const currentStatus = doc.data().isActive;
+    await docRef.update({
+      isActive: !currentStatus,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    const updatedDoc = await docRef.get();
     res.status(200).json({
       success: true,
-      data: jewelryType,
-      message: `Jewelry type ${jewelryType.isActive ? 'activated' : 'deactivated'} successfully`
+      data: { id: updatedDoc.id, ...updatedDoc.data() },
+      message: `Jewelry type ${!currentStatus ? 'activated' : 'deactivated'} successfully`
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Search jewelry types
-// @route   GET /api/jewelry-types/search
-// @access  Public
+// SEARCH jewelry types (simple case-insensitive search)
 const searchJewelryTypes = async (req, res) => {
   try {
+    const db = getFirestore();
     const { q } = req.query;
-    
     if (!q) {
-      return res.status(400).json({
-        success: false,
-        message: 'Search query is required'
-      });
+      return res.status(400).json({ success: false, message: 'Search query is required' });
     }
-    
-    const jewelryTypes = await JewelryType.find({
-      $text: { $search: q }
-    }).sort({ score: { $meta: 'textScore' } });
-    
-    res.status(200).json({
-      success: true,
-      data: jewelryTypes
+    const snapshot = await db.collection('jewelryTypes').get();
+    const results = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (
+        (data.type && data.type.toLowerCase().includes(q.toLowerCase())) ||
+        (data.description && data.description.toLowerCase().includes(q.toLowerCase()))
+      ) {
+        results.push({ id: doc.id, ...data });
+      }
     });
+    res.status(200).json({ success: true, data: results });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 

@@ -10,8 +10,9 @@ const jewelryTypeRoutes = require('./routes/jeweloryRoutes');
 const jewelryRoutes = require('./routes/JewelryRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const path = require('path');
-const customizationRoutes = require('./routes/customizationRoutes'); // Changed to lowercase
-
+const customizationRoutes = require('./routes/customizationRoutes'); // Changed to 
+// lowercase
+const orderRoutes = require('./routes/orderRoutes');
 // Fix MaxListeners warning
 process.setMaxListeners(0);
 
@@ -26,7 +27,7 @@ const initializeApp = async () => {
         
         // Middleware setup
         app.use(cors());
-        app.use(bodyParser.json());
+        app.use(bodyParser.json({limit: '10mb'})); // Increase limit to 10MB
 
         app.use('/upload', express.static(path.join(__dirname,'uploads')));
         app.use('/uploads', express.static(path.join(__dirname,'uploads')));
@@ -38,6 +39,9 @@ const initializeApp = async () => {
         app.use('/api/jewelry-types', jewelryTypeRoutes);
         app.use('/api/contact', contactRoutes);
         app.use('/api/customizations', customizationRoutes); // Add this line
+        app.use('/api/order', orderRoutes);
+
+app.use('/api/contact', contactRoutes);
 
         // Error handling middleware
         app.use((err, req, res, next) => {

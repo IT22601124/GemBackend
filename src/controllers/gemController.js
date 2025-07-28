@@ -10,11 +10,11 @@ const getGems = async (req, res) => {
   try {
     const db = getFirestore();
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const offset = (page - 1) * limit;
-    
+    // const limit = parseInt(req.query.limit) || 15; // <-- REMOVE THIS LINE
+    // const offset = (page - 1) * limit; // <-- REMOVE THIS LINE
+
     let query = db.collection('gems');
-    
+
     // Apply filters
     if (req.query.category) {
       query = query.where('category', '==', req.query.category);
@@ -25,15 +25,13 @@ const getGems = async (req, res) => {
     if (req.query.inStock !== undefined) {
       query = query.where('inStock', '==', req.query.inStock === 'true');
     }
-    
-    // Price range filter (Firestore doesn't support multiple inequality filters on different fields)
     if (req.query.minPrice) {
       query = query.where('price', '>=', parseFloat(req.query.minPrice));
     }
     if (req.query.maxPrice) {
       query = query.where('price', '<=', parseFloat(req.query.maxPrice));
     }
-    
+
     // Apply ordering
     if (req.query.sortBy) {
       const parts = req.query.sortBy.split(':');
@@ -42,33 +40,26 @@ const getGems = async (req, res) => {
     } else {
       query = query.orderBy('createdAt', 'desc');
     }
-    
-    // Apply pagination
-    query = query.offset(offset).limit(limit);
-    
+
+    // Do not apply .limit() or .offset()
+
     const snapshot = await query.get();
     const gems = [];
-    
+
     snapshot.forEach(doc => {
       gems.push({
         id: doc.id,
         ...doc.data()
       });
     });
-    
-    // Get total count (simplified - in production you might want to cache this)
-    const totalSnapshot = await db.collection('gems').get();
-    const total = totalSnapshot.size;
-    
+
+    // Get total count
+    const total = gems.length;
+
     res.status(200).json({
       success: true,
       data: gems,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
-      }
+      total
     });
   } catch (error) {
     console.error('Error fetching gems:', error);
@@ -94,6 +85,7 @@ const getGem = async (req, res) => {
         message: 'Gem not found'
       });
     }
+   
     
     res.status(200).json({
       success: true,
@@ -129,9 +121,9 @@ const createGem = async (req, res) => {
     // Handle multiple gem images if they exist
     let imagePaths = [];
     if (req.files && req.files.length > 0) {
-      imagePaths = req.files.map(file => `/uploads/gem/${file.filename}`);
+      imagePaths = req.files.map(file => `/src/uploads/gem/${file.filename}`);
     } else if (req.file) {
-      imagePaths = [`/uploads/gem/${req.file.filename}`];
+      imagePaths = [`/src/uploads/gem/${req.file.filename}`];
     }
     gemData.images = imagePaths;
     gemData.imageCount = imagePaths.length;
@@ -162,6 +154,9 @@ const createGem = async (req, res) => {
       } else {
         console.log('Category already exists:', doc.data()['category']);
       }
+    }
+    if(res.statusCode === 200) {
+      console.log('Gem created successfully:', doc.id);
     }
 
     res.status(201).json({
