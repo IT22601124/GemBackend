@@ -11,6 +11,7 @@ const jewelryRoutes = require('./routes/JewelryRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const path = require('path');
 const customizationRoutes = require('./routes/customizationRoutes'); // Changed to 
+const customJewelleryRoutes = require('./routes/customJewelleryRoutes');
 // lowercase
 const orderRoutes = require('./routes/orderRoutes');
 // Fix MaxListeners warning
@@ -31,7 +32,7 @@ const initializeApp = async () => {
 
         app.use('/upload', express.static(path.join(__dirname,'uploads')));
         app.use('/uploads', express.static(path.join(__dirname,'uploads')));
-
+       
         // Routes setup
         app.use('/api', routes);
         app.use('/api/gems', gemRoutes);
@@ -40,6 +41,8 @@ const initializeApp = async () => {
         app.use('/api/contact', contactRoutes);
         app.use('/api/customizations', customizationRoutes); // Add this line
         app.use('/api/order', orderRoutes);
+        
+app.use('/api/custom-jewellery-request', customJewelleryRoutes);
 
 app.use('/api/contact', contactRoutes);
 
